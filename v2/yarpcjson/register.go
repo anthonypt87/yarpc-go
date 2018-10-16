@@ -34,7 +34,7 @@ var (
 	_interfaceEmptyType = reflect.TypeOf((*interface{})(nil)).Elem()
 )
 
-// TransportProcedure builds a TransportProcedure from the given JSON handler. handler must be
+// Procedure builds a TransportProcedure from the given JSON handler. handler must be
 // a function with a signature similar to,
 //
 // 	f(ctx context.Context, body $reqBody) ($resBody, error)

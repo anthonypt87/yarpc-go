@@ -27,6 +27,7 @@ package streampb
 import (
 	context "context"
 	fmt "fmt"
+
 	fx "go.uber.org/fx"
 	yarpc "go.uber.org/yarpc/v2"
 	yarpcprotobuf "go.uber.org/yarpc/v2/yarpcprotobuf"
@@ -209,7 +210,7 @@ type HelloYARPCServer interface {
 }
 
 // BuildHelloYARPCProcedures constructs the YARPC procedures for the Hello service.
-func BuildHelloYARPCProcedures(s HelloYARPCServer) []yarpc.Procedure {
+func BuildHelloYARPCProcedures(s HelloYARPCServer) []yarpc.TransportProcedure {
 	h := &_HelloYARPCServer{server: s}
 	return yarpcprotobuf.Procedures(
 		yarpcprotobuf.ProceduresParams{
@@ -406,7 +407,7 @@ type FxHelloYARPCServerParams struct {
 type FxHelloYARPCServerResult struct {
 	fx.Out
 
-	Procedures []yarpc.Procedure `group:"yarpcfx"`
+	Procedures []yarpc.TransportProcedure `group:"yarpcfx"`
 }
 
 // NewFxHelloYARPCServer provides the HelloYARPCServer
