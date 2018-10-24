@@ -23,13 +23,12 @@ package grpc
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"io/ioutil"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/gogo/protobuf/proto"
+	"github.com/opentracing/opentracing-go"
 	"go.uber.org/yarpc"
 	"go.uber.org/yarpc/api/peer"
 	"go.uber.org/yarpc/api/transport"
@@ -183,7 +182,7 @@ func (o *Outbound) invoke(
 		),
 	)
 	if err != nil {
-		return handleInvokeError(err, *responseMD)
+		return invokeErrorToYARPCError(err, *responseMD)
 	}
 	// Service name match validation, return yarpcerrors.CodeInternal error if not match
 	if match, resSvcName := checkServiceMatch(request.Service, *responseMD); !match {
@@ -202,18 +201,22 @@ func metadataToIsApplicationError(responseMD metadata.MD) bool {
 	return ok && len(value) > 0 && len(value[0]) > 0
 }
 
-func handleInvokeError(err error, responseMD metadata.MD) error {
+func invokeErrorToYARPCError(err error, responseMD metadata.MD) error {
+	if err == nil {
+		return nil
+	}
 	if yarpcerrors.IsStatus(err) {
 		return err
 	}
-	st, ok := status.FromError(err)
-
+	status, ok := status.FromError(err)
+	// if not a yarpc error or grpc error, just return a wrapped error
 	if !ok {
 		return yarpcerrors.FromError(err)
 	}
-
-	code := getCodeFromStatus(st)
-
+	code, ok := _grpcCodeToCode[status.Code()]
+	if !ok {
+		code = yarpcerrors.CodeUnknown
+	}
 	var name string
 	if responseMD != nil {
 		value, ok := responseMD[ErrorNameHeader]
@@ -221,9 +224,8 @@ func handleInvokeError(err error, responseMD metadata.MD) error {
 		if ok && len(value) == 1 {
 			name = value[0]
 		}
-		addStatusDetailsToMetadata(st, responseMD)
 	}
-	message := st.Message()
+	message := status.Message()
 	// we put the name as a prefix for grpc compatibility
 	// if there was no message, the message will be the name, so we leave it as the message
 	if name != "" && message != "" && message != name {
@@ -232,38 +234,6 @@ func handleInvokeError(err error, responseMD metadata.MD) error {
 		message = ""
 	}
 	return intyarpcerrors.NewWithNamef(code, name, message)
-}
-
-// addStatusDetailsToMetadata adds a binary encoded marshalled proto of the
-// grpc `status.Status` object to responsseMD to later be encoded as a yarpc header.
-// This needs to be done because although grpc-go properly sends this over
-// over the wire under the header `grpc-status-details-bin`, it decodes and
-// unmarshalls it to the status.Status object and never propogates it to
-// metadata.
-func addStatusDetailsToMetadata(st *status.Status, responseMD metadata.MD) {
-	if p := st.Proto(); p != nil && len(p.Details) > 0 {
-		stBytes, err := proto.Marshal(p)
-		if err != nil {
-			// TODO: Don't panic
-			panic(err)
-		}
-		responseMD.Set(
-			_grpcStatusDetailsHeaderKey,
-			encodeBinaryHeader(stBytes),
-		)
-	}
-}
-
-func getCodeFromStatus(s *status.Status) yarpcerrors.Code {
-	code, ok := _grpcCodeToCode[s.Code()]
-	if !ok {
-		return yarpcerrors.CodeUnknown
-	}
-	return code
-}
-
-func encodeBinaryHeader(v []byte) string {
-	return base64.RawStdEncoding.EncodeToString(v)
 }
 
 // CallStream implements transport.StreamOutbound#CallStream.
